@@ -1,4 +1,4 @@
-# ESP-Now-Serial-Bridge
+# ESP-Now-Serial-Bridge (ESP32-C3 EWK 06-08-2025)
 
 ESP32 based serial bridge for transmitting serial data between two boards
 
@@ -21,6 +21,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
+[EWK]
 ESP32-C3 ESP-NOW WiFi unicast
 
 Final Latency Stats (ms):
@@ -47,6 +48,7 @@ Final Latency Stats (ms):
 | 18  | 3.45 | 1.97 | 5.55 |     45  |        0 |
 | 19  | 3.79 | 2.00 | 5.51 |     45  |        0 |
 | 20  | 4.00 | 2.38 | 6.67 |     45  |        0 |
+
 
 
 
