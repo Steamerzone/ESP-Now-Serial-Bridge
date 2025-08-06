@@ -24,7 +24,7 @@ The above copyright notice and this permission notice shall be included in all c
 [EWK]
 ESP32-C3 ESP-NOW WiFi unicast
 
-Final Latency Stats (ms):
+Final Latency Stats Len nr bytes (ms):
 
 | Len | Avg  | Min  | Max  | Samples | Timeouts |
 |-----|------|------|------|---------|----------|
@@ -48,6 +48,7 @@ Final Latency Stats (ms):
 | 18  | 3.45 | 1.97 | 5.55 |     45  |        0 |
 | 19  | 3.79 | 2.00 | 5.51 |     45  |        0 |
 | 20  | 4.00 | 2.38 | 6.67 |     45  |        0 |
+
 
 
 
