@@ -42,6 +42,7 @@
 #define BOARD1 // BOARD1 or BOARD2
 
 #ifdef BOARD1
+//#define RECVR_MAC {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}  // broadcast mode
 #define RECVR_MAC {0x64, 0xE8, 0x33, 0x88, 0x26, 0xF8}  // replace with BOARD2 mac address
 #define MySerial Serial
 #define MySerialSetup MySerial.begin(115200)            // Use USB serial
