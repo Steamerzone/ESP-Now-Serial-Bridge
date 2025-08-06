@@ -54,8 +54,8 @@
 
 #define RECVR_MAC {0x94, 0xA9, 0x90, 0x47, 0x45, 0x00}  // replace with BOARD1 mac address
 HardwareSerial MySerial(1);  // Use UART1
-#define TX_PIN     5                                    // connecting to pin 20/21 interferes with wifi range
-#define RX_PIN     6                                    //
+#define TX_PIN     5                                    // GPIO20 and GPIO21 are reserved for internal RF functions. External connections to them 
+#define RX_PIN     6                                    // can degrade Wi-Fi performance.
 #define MySerialSetup MySerial.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN)
 //#define BLINK_ON_SEND
 #define BLINK_ON_SEND_SUCCESS
