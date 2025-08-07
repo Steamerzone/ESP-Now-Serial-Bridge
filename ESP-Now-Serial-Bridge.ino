@@ -33,7 +33,7 @@
  *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
-**********************************************************************************/
+*********************************************************************************/
 
 #include <esp_now.h>
 #include <WiFi.h>
@@ -50,11 +50,14 @@
 #define BLINK_ON_SEND_SUCCESS
 #define BLINK_ON_RECV_SUCCESS
 //#define BLINK_ON_RECV
+// Sleep mode configuration (in seconds, 0 = disabled)
+#define SLEEP_TIMEOUT_SECONDS 600 // enter 'sleep mode' (disable wifi) after X seconds of no serial activity
+                                  // from master (BOARD1), only serial data from host can wake it
 
 #else
 
 #define RECVR_MAC {0x94, 0xA9, 0x90, 0x47, 0x45, 0x00}  // replace with BOARD1 mac address
-HardwareSerial MySerial(1);  // Use UART1
+HardwareSerial MySerial(1);                             // Use UART1
 #define TX_PIN     5                                    // GPIO20 and GPIO21 are reserved for internal RF functions. External connections to them 
 #define RX_PIN     6                                    // can degrade Wi-Fi performance.
 #define MySerialSetup MySerial.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN)
@@ -62,6 +65,7 @@ HardwareSerial MySerial(1);  // Use UART1
 #define BLINK_ON_SEND_SUCCESS
 #define BLINK_ON_RECV_SUCCESS
 //#define BLINK_ON_RECV
+#define SLEEP_TIMEOUT_SECONDS 0   // Sleep mode disabled for BOARD2 (slave)
 #endif
 
 #define WIFI_CHAN  13 // 12-13 only legal in US in lower power mode, do not use 14
@@ -82,7 +86,103 @@ uint8_t buf_size = 0;
 uint32_t send_timeout = 0;
 uint8_t led_status = 0;
 
+// Sleep mode variables
+#if SLEEP_TIMEOUT_SECONDS > 0
+uint32_t last_activity_time = 0;
+bool wifi_enabled = true;
+const uint32_t sleep_timeout_millis = SLEEP_TIMEOUT_SECONDS * 1000;
+#endif
+
 esp_now_peer_info_t peerInfo;  // scope workaround for arduino-esp32 v2.0.1
+
+// Function to initialize ESP-NOW
+bool init_espnow() {
+  WiFi.mode(WIFI_STA);
+  
+  if (esp_wifi_set_channel(WIFI_CHAN, WIFI_SECOND_CHAN_NONE) != ESP_OK) {
+    #ifdef DEBUG
+    MySerial.println("Error changing WiFi channel");
+    #endif
+    return false;
+  }
+
+  if (esp_now_init() != ESP_OK) {
+    #ifdef DEBUG
+    MySerial.println("Error initializing ESP-NOW");
+    #endif
+    return false;
+  }
+
+  #if defined(DEBUG) || defined(BLINK_ON_SEND_SUCCESS)
+  esp_now_register_send_cb(OnDataSent);
+  #endif
+  
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = WIFI_CHAN;  
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    #ifdef DEBUG
+    MySerial.println("Failed to add peer");
+    #endif
+    return false;
+  }
+
+  esp_now_register_recv_cb(OnDataRecv);
+  return true;
+}
+
+// Function to disable WiFi for power saving
+void disable_wifi() {
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  if (wifi_enabled) {
+    esp_now_deinit();
+    WiFi.disconnect();
+    WiFi.mode(WIFI_OFF);
+    wifi_enabled = false;
+    #ifdef DEBUG
+    MySerial.println("WiFi disabled - entering sleep mode");
+    #endif
+    // Flash LED pattern to indicate sleep mode
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(100);
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(100);
+    }
+  }
+  #endif
+}
+
+// Function to re-enable WiFi
+void enable_wifi() {
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  if (!wifi_enabled) {
+    #ifdef DEBUG
+    MySerial.println("WiFi enabling - waking from sleep mode");
+    #endif
+    // Flash LED pattern to indicate wake up
+    for (int i = 0; i < 2; i++) {
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(250);
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(250);
+    }
+    
+    if (init_espnow()) {
+      wifi_enabled = true;
+      #ifdef DEBUG
+      MySerial.println("WiFi re-enabled successfully");
+      #endif
+    } else {
+      #ifdef DEBUG
+      MySerial.println("Failed to re-enable WiFi");
+      #endif
+    }
+  }
+  last_activity_time = millis();
+  #endif
+}
 
 #if defined(DEBUG) || defined(BLINK_ON_SEND_SUCCESS)
 void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
@@ -115,6 +215,12 @@ void OnDataRecv(const esp_now_recv_info_t * mac_addr, const uint8_t *incomingDat
   #endif
   memcpy(&buf_recv, incomingData, sizeof(buf_recv));
   MySerial.write(buf_recv, len);
+  
+  // Update activity time when data is received
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  last_activity_time = millis();
+  #endif
+  
   #ifdef BLINK_ON_RECV_SUCCESS
     led_status = ~led_status;
     // this function happens too fast to register a blink
@@ -141,54 +247,54 @@ void setup() {
     delay(200); // Wait for 200 milliseconds
   }
 
-  //Serial.begin(BAUD_RATE, SER_PARAMS, RX_PIN, TX_PIN);
   MySerialSetup;
   MySerial.println("ESP-NOW Boot");
-  MySerial.println(send_timeout);
-  WiFi.mode(WIFI_STA);
-
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  MySerial.print("Sleep mode enabled: ");
+  MySerial.print(SLEEP_TIMEOUT_SECONDS);
+  MySerial.println(" seconds timeout");
+  #else
+  MySerial.println("Sleep mode disabled");
+  #endif
+  
   #ifdef DEBUG
   MySerial.print("ESP32C3 MAC Address: ");
   MySerial.println(WiFi.macAddress());
   #endif
   
-  if (esp_wifi_set_channel(WIFI_CHAN, WIFI_SECOND_CHAN_NONE) != ESP_OK) {
-    #ifdef DEBUG
-    MySerial.println("Error changing WiFi channel");
-    #endif
+  // Initialize ESP-NOW
+  if (!init_espnow()) {
+    MySerial.println("Failed to initialize ESP-NOW");
     return;
   }
 
-  if (esp_now_init() != ESP_OK) {
-    #ifdef DEBUG
-    MySerial.println("Error initializing ESP-NOW");
-    #endif
-    return;
-  }
-
-  #if defined(DEBUG) || defined(BLINK_ON_SEND_SUCCESS)
-  esp_now_register_send_cb(OnDataSent);
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  last_activity_time = millis();
+  wifi_enabled = true;
   #endif
-  
-  // esp_now_peer_info_t peerInfo;  // scope workaround for arduino-esp32 v2.0.1
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-  peerInfo.channel = WIFI_CHAN;  
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK){
-    #ifdef DEBUG
-    MySerial.println("Failed to add peer");
-    #endif
-    return;
-  }
-
-  esp_now_register_recv_cb(OnDataRecv);
 }
 
 void loop() {
+  // Check for sleep timeout
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  if (wifi_enabled && (millis() - last_activity_time) > sleep_timeout_millis) {
+    disable_wifi();
+  }
+  #endif
 
   // read up to BUFFER_SIZE from serial port
   if (MySerial.available()) {
+    // If WiFi is disabled and we have serial data, re-enable it
+    #if SLEEP_TIMEOUT_SECONDS > 0
+    if (!wifi_enabled) {
+      enable_wifi();
+      // Wait a bit for WiFi to fully initialize before proceeding
+      delay(100);
+    } else {
+      last_activity_time = millis();  // Update activity time
+    }
+    #endif
+    
     while (MySerial.available() && buf_size < BUFFER_SIZE) {
       buf_send[buf_size] = MySerial.read();
       send_timeout = micros() + timeout_micros;
@@ -197,7 +303,12 @@ void loop() {
   }
 
   // send buffer contents when full or timeout has elapsed
+  // Only send if WiFi is enabled
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  if (wifi_enabled && (buf_size == BUFFER_SIZE || (buf_size > 0 && micros() >= send_timeout))) {
+  #else
   if (buf_size == BUFFER_SIZE || (buf_size > 0 && micros() >= send_timeout)) {
+  #endif
     #ifdef BLINK_ON_SEND
     digitalWrite(LED_BUILTIN, LOW);
     #endif
@@ -215,7 +326,4 @@ void loop() {
     digitalWrite(LED_BUILTIN, HIGH);
     #endif
   }
-
 }
-
-
