@@ -36,9 +36,9 @@
 *********************************************************************************/
 
 #include <Arduino.h>
-#include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <esp_now.h>
 
 #define BOARD1 // BOARD1 or BOARD2
 
@@ -80,6 +80,9 @@ const uint8_t broadcastAddress[] = RECVR_MAC;
 // wait for double the time between bytes at this serial baud rate before sending a packet
 // this *should* allow for complete packet forming when using packetized serial comms
 const uint32_t timeout_micros = (int)(1.0 / BAUD_RATE * 1E6) * 20;
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
 
 uint8_t buf_recv[BUFFER_SIZE];
 uint8_t buf_send[BUFFER_SIZE];
@@ -186,7 +189,7 @@ void enable_wifi() {
 }
 
 #if defined(DEBUG) || defined(BLINK_ON_SEND_SUCCESS)
-void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   #ifdef DEBUG
   if (status == ESP_NOW_SEND_SUCCESS) {
     MySerial.println("Send success");
@@ -210,7 +213,7 @@ void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
 }
 #endif
 
-void OnDataRecv(const esp_now_recv_info_t * mac_addr, const uint8_t *incomingData, int len) {
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
   #ifdef BLINK_ON_RECV
   digitalWrite(LED_BUILTIN, LOW);
   #endif
