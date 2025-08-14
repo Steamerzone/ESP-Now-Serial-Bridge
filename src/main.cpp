@@ -36,9 +36,12 @@
 *********************************************************************************/
 
 #include <Arduino.h>
+#include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <esp_now.h>
+
+// Board configuration - manually uncomment #define BOARD1 or #define BOARD2 below
+// (or use build flags in platformio.ini: build_flags = -DBOARD1 or -DBOARD2)
 
 #define BOARD1 // BOARD1 or BOARD2
 
@@ -55,7 +58,7 @@
 #define SLEEP_TIMEOUT_SECONDS 600 // enter 'sleep mode' (disable wifi) after X seconds of no serial activity
                                   // from master (BOARD1), only serial data from host can wake it
 
-#else
+#elif defined(BOARD2)
 
 #define RECVR_MAC {0x94, 0xA9, 0x90, 0x47, 0x45, 0x00}  // replace with BOARD1 mac address
 HardwareSerial MySerial(1);                             // Use UART1
@@ -67,6 +70,9 @@ HardwareSerial MySerial(1);                             // Use UART1
 #define BLINK_ON_RECV_SUCCESS
 //#define BLINK_ON_RECV
 #define SLEEP_TIMEOUT_SECONDS 0   // Sleep mode disabled for BOARD2 (slave)
+
+#else
+#error "Must define BOARD1 or BOARD2 in build flags"
 #endif
 
 #define WIFI_CHAN  13 // 12-13 only legal in US in lower power mode, do not use 14
@@ -74,15 +80,14 @@ HardwareSerial MySerial(1);                             // Use UART1
 #define BUFFER_SIZE 250 // max of 250 bytes
 //#define DEBUG // for additional serial messages (may interfere with other messages)
 #define BAUD_RATE 115200 // for calulating timeout
-#define LED_BUILTIN 8  // on-board led pin number
+#define LED_BUILTIN 8
+#define LED_ON  LOW     // ESP32-C3 pin 8 LED is typically active-low
+#define LED_OFF HIGH    // ESP32-C3 pin 8 LED is typically active-low
 
 const uint8_t broadcastAddress[] = RECVR_MAC;
 // wait for double the time between bytes at this serial baud rate before sending a packet
 // this *should* allow for complete packet forming when using packetized serial comms
 const uint32_t timeout_micros = (int)(1.0 / BAUD_RATE * 1E6) * 20;
-
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
 
 uint8_t buf_recv[BUFFER_SIZE];
 uint8_t buf_send[BUFFER_SIZE];
@@ -98,6 +103,10 @@ const uint32_t sleep_timeout_millis = SLEEP_TIMEOUT_SECONDS * 1000;
 #endif
 
 esp_now_peer_info_t peerInfo;  // scope workaround for arduino-esp32 v2.0.1
+
+// Function declarations
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
 
 // Function to initialize ESP-NOW
 bool init_espnow() {
@@ -149,9 +158,9 @@ void disable_wifi() {
     #endif
     // Flash LED pattern to indicate sleep mode
     for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_BUILTIN, LOW);
+      digitalWrite(LED_BUILTIN, LED_ON);
       delay(100);
-      digitalWrite(LED_BUILTIN, HIGH);
+      digitalWrite(LED_BUILTIN, LED_OFF);
       delay(100);
     }
   }
@@ -167,9 +176,9 @@ void enable_wifi() {
     #endif
     // Flash LED pattern to indicate wake up
     for (int i = 0; i < 2; i++) {
-      digitalWrite(LED_BUILTIN, LOW);
+      digitalWrite(LED_BUILTIN, LED_ON);
       delay(250);
-      digitalWrite(LED_BUILTIN, HIGH);
+      digitalWrite(LED_BUILTIN, LED_OFF);
       delay(250);
     }
     
@@ -242,18 +251,20 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LED_OFF); // Ensure LED starts OFF
 
   // Flash LED 3 times at boot
   for (int i = 0; i < 3; i++) {
-    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(LED_BUILTIN, LED_ON);   // Turn LED ON
     delay(200); // Wait for 200 milliseconds
-    digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(LED_BUILTIN, LED_OFF);  // Turn LED OFF
     delay(200); // Wait for 200 milliseconds
   }
 
   MySerialSetup;
+  MySerial.println("");
   MySerial.println("ESP-NOW Boot");
-  #if SLEEP_TIMEOUT_SECONDS > 0
+   #if SLEEP_TIMEOUT_SECONDS > 0
   MySerial.print("Sleep mode enabled: ");
   MySerial.print(SLEEP_TIMEOUT_SECONDS);
   MySerial.println(" seconds timeout");
