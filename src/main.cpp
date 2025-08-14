@@ -35,6 +35,7 @@
  * copies or substantial portions of the Software.
 *********************************************************************************/
 
+#include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
