@@ -58,7 +58,7 @@
 #define SLEEP_TIMEOUT_SECONDS 600 // enter 'sleep mode' (disable wifi) after X seconds of no serial activity
                                   // from master (BOARD1), only serial data from host can wake it
 
-#elif defined(BOARD2)
+#else
 
 #define RECVR_MAC {0x94, 0xA9, 0x90, 0x47, 0x45, 0x00}  // replace with BOARD1 mac address
 HardwareSerial MySerial(1);                             // Use UART1
@@ -70,9 +70,6 @@ HardwareSerial MySerial(1);                             // Use UART1
 #define BLINK_ON_RECV_SUCCESS
 //#define BLINK_ON_RECV
 #define SLEEP_TIMEOUT_SECONDS 0   // Sleep mode disabled for BOARD2 (slave)
-
-#else
-#error "Must define BOARD1 or BOARD2 in build flags"
 #endif
 
 #define WIFI_CHAN  13 // 12-13 only legal in US in lower power mode, do not use 14
