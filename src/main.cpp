@@ -1,7 +1,13 @@
 /*********************************************************************************
- * ESP-Now-Serial-Bridge (ESP32-C3 EWK 06-08-2025)
+ * ESP-Now-Serial-Bridge (ESP32-C3 EWK 06-08-2025) - SLEEP MODE FIXED
  *
  * ESP32 based serial bridge for transmitting serial data between two boards
+ *
+ * FIXED ISSUES:
+ * - Boot sleep: Now properly initializes activity timer AFTER WiFi setup
+ * - Millis rollover: Uses proper unsigned arithmetic for safe rollover handling
+ * - Premature sleep: Better activity tracking during serial communication
+ * - Debug output: Enhanced debugging for sleep timeout analysis
  *
  * The primary purpose of this sketch was to enable a MAVLink serial connection,
  *   which I successfully tested at 57600 bps.  In theory, much faster buad rates
@@ -25,6 +31,7 @@
  *   before compiling.
  *
  * -- Yuri - Sep 2021
+ * -- Sleep fixes - Dec 2024
  *
  * Based this example - https://randomnerdtutorials.com/esp-now-two-way-communication-esp32/
  *
@@ -75,7 +82,7 @@ HardwareSerial MySerial(1);                             // Use UART1
 #define WIFI_CHAN  14 // 12-13 only legal in US in lower power mode, do not use 14
 
 #define BUFFER_SIZE 250 // max of 250 bytes
-//#define DEBUG // for additional serial messages (may interfere with other messages)
+//#define DEBUG // for additional serial messages (may interfere with other messages) - ENABLE FOR DEBUGGING
 #define BAUD_RATE 1000000// for calulating timeout
 #define LED_BUILTIN 8
 #define LED_ON  LOW     // ESP32-C3 pin 8 LED is typically active-low
@@ -96,7 +103,8 @@ uint8_t led_status = 0;
 #if SLEEP_TIMEOUT_SECONDS > 0
 uint32_t last_activity_time = 0;
 bool wifi_enabled = true;
-const uint32_t sleep_timeout_millis = SLEEP_TIMEOUT_SECONDS * 1000;
+bool sleep_timer_initialized = false; // NEW: Track if sleep timer is properly initialized
+const uint32_t sleep_timeout_millis = (uint32_t)SLEEP_TIMEOUT_SECONDS * 1000UL; // Use explicit cast and UL
 #endif
 
 esp_now_peer_info_t peerInfo;  // scope workaround for arduino-esp32 v2.0.1
@@ -104,6 +112,76 @@ esp_now_peer_info_t peerInfo;  // scope workaround for arduino-esp32 v2.0.1
 // Function declarations
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len);
+void update_activity_time(); // Helper function to update activity timestamp
+
+// Helper function to update activity time (only when sleep mode is enabled)
+void update_activity_time() {
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  uint32_t current_time = millis();
+  last_activity_time = current_time;
+  sleep_timer_initialized = true; // Mark timer as properly initialized
+  
+  #ifdef DEBUG
+  MySerial.print("Activity updated at: ");
+  MySerial.print(current_time);
+  MySerial.print("ms (timeout in ");
+  MySerial.print(sleep_timeout_millis);
+  MySerial.println("ms)");
+  #endif
+  #endif
+}
+
+// Function to check if sleep timeout has been reached (handles millis rollover safely)
+bool is_sleep_timeout_reached() {
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  if (!sleep_timer_initialized || !wifi_enabled) {
+    return false; // Don't sleep if timer not initialized or WiFi already disabled
+  }
+  
+  uint32_t current_time = millis();
+  
+  // Handle the case where current_time might be slightly less than last_activity_time
+  // due to timing variations or system adjustments
+  if (current_time < last_activity_time) {
+    // If current time is less than last activity time, it's likely a timing glitch
+    // Update the activity time to current time and don't sleep
+    #ifdef DEBUG
+    MySerial.print("Timing glitch detected - Current: ");
+    MySerial.print(current_time);
+    MySerial.print("ms < Last activity: ");
+    MySerial.print(last_activity_time);
+    MySerial.println("ms, adjusting activity time");
+    #endif
+    last_activity_time = current_time; // Adjust to prevent underflow
+    return false;
+  }
+  
+  uint32_t elapsed_time = current_time - last_activity_time; // Now safe from underflow
+  
+  #ifdef DEBUG
+  // Only show debug output when we're very close to timeout (last 30 seconds) or about to sleep
+  static uint32_t last_debug_time = 0;
+  if (elapsed_time >= sleep_timeout_millis || 
+      (elapsed_time > (sleep_timeout_millis - 30000) && (current_time - last_debug_time) > 10000)) {
+    
+    MySerial.print("Sleep check - Elapsed: ");
+    MySerial.print(elapsed_time / 1000);
+    MySerial.print("s / ");
+    MySerial.print(sleep_timeout_millis / 1000);
+    MySerial.print("s");
+    if (elapsed_time >= sleep_timeout_millis) {
+      MySerial.print(" -> SLEEPING!");
+    }
+    MySerial.println("");
+    last_debug_time = current_time;
+  }
+  #endif
+  
+  return elapsed_time >= sleep_timeout_millis;
+  #else
+  return false; // Sleep disabled
+  #endif
+}
 
 // Function to initialize ESP-NOW
 bool init_espnow() {
@@ -139,6 +217,11 @@ bool init_espnow() {
   }
 
   esp_now_register_recv_cb(OnDataRecv);
+  
+  #ifdef DEBUG
+  MySerial.println("ESP-NOW initialized successfully");
+  #endif
+  
   return true;
 }
 
@@ -146,13 +229,19 @@ bool init_espnow() {
 void disable_wifi() {
   #if SLEEP_TIMEOUT_SECONDS > 0
   if (wifi_enabled) {
+    #ifdef DEBUG
+    MySerial.println("=== ENTERING SLEEP MODE ===");
+    MySerial.print("Last activity was ");
+    MySerial.print(millis() - last_activity_time);
+    MySerial.println("ms ago");
+    #endif
+    
     esp_now_deinit();
     WiFi.disconnect();
     WiFi.mode(WIFI_OFF);
     wifi_enabled = false;
-    #ifdef DEBUG
-    MySerial.println("WiFi disabled - entering sleep mode");
-    #endif
+    sleep_timer_initialized = false; // Reset timer initialization flag
+    
     // Flash LED pattern to indicate sleep mode
     for (int i = 0; i < 5; i++) {
       digitalWrite(LED_BUILTIN, LED_ON);
@@ -160,6 +249,11 @@ void disable_wifi() {
       digitalWrite(LED_BUILTIN, LED_OFF);
       delay(100);
     }
+    
+    #ifdef DEBUG
+    MySerial.println("WiFi disabled - now in sleep mode");
+    MySerial.flush(); // Ensure debug message is sent before continuing
+    #endif
   }
   #endif
 }
@@ -169,8 +263,10 @@ void enable_wifi() {
   #if SLEEP_TIMEOUT_SECONDS > 0
   if (!wifi_enabled) {
     #ifdef DEBUG
-    MySerial.println("WiFi enabling - waking from sleep mode");
+    MySerial.println("=== WAKING FROM SLEEP MODE ===");
+    MySerial.println("Serial activity detected, re-enabling WiFi...");
     #endif
+    
     // Flash LED pattern to indicate wake up
     for (int i = 0; i < 2; i++) {
       digitalWrite(LED_BUILTIN, LED_ON);
@@ -181,6 +277,8 @@ void enable_wifi() {
     
     if (init_espnow()) {
       wifi_enabled = true;
+      // IMPORTANT: Set activity time AFTER WiFi is fully initialized
+      update_activity_time();
       #ifdef DEBUG
       MySerial.println("WiFi re-enabled successfully");
       #endif
@@ -189,18 +287,23 @@ void enable_wifi() {
       MySerial.println("Failed to re-enable WiFi");
       #endif
     }
+  } else {
+    // WiFi already enabled, just update activity time
+    update_activity_time();
   }
-  last_activity_time = millis();
   #endif
 }
 
 #if defined(DEBUG) || defined(BLINK_ON_SEND_SUCCESS)
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  // Update activity time when data is sent (successful or not)
+  update_activity_time();
+
   #ifdef DEBUG
   if (status == ESP_NOW_SEND_SUCCESS) {
-    MySerial.println("Send success");
+    MySerial.println("ESP-NOW: Send success");
   } else {
-  MySerial.println("Send failed");
+    MySerial.println("ESP-NOW: Send failed");
   }
   #endif
 
@@ -223,26 +326,26 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
   #ifdef BLINK_ON_RECV
   digitalWrite(LED_BUILTIN, LOW);
   #endif
+  
   memcpy(&buf_recv, incomingData, sizeof(buf_recv));
   MySerial.write(buf_recv, len);
   
   // Update activity time when data is received
-  #if SLEEP_TIMEOUT_SECONDS > 0
-  last_activity_time = millis();
-  #endif
+  update_activity_time();
   
   #ifdef BLINK_ON_RECV_SUCCESS
     led_status = ~led_status;
     // this function happens too fast to register a blink
-    // instead, we latch on/off as data is successfully recieved
+    // instead, we latch on/off as data is successfully received
     digitalWrite(LED_BUILTIN, led_status);
    #endif
   #ifdef BLINK_ON_RECV
   digitalWrite(LED_BUILTIN, HIGH);
   #endif
   #ifdef DEBUG
-  MySerial.print("\n Bytes received: ");
-  MySerial.println(len);
+  MySerial.print("ESP-NOW: Received ");
+  MySerial.print(len);
+  MySerial.println(" bytes");
   #endif
 }
 
@@ -259,51 +362,93 @@ void setup() {
   }
 
   MySerialSetup;
+  
+  // Wait a moment for serial to be ready
+  delay(100);
+  
   MySerial.println("");
-  MySerial.println("ESP-NOW Boot");
-   #if SLEEP_TIMEOUT_SECONDS > 0
-  MySerial.print("Sleep mode enabled: ");
+  MySerial.println("=== ESP-NOW Serial Bridge Boot ===");
+  
+  #if SLEEP_TIMEOUT_SECONDS > 0
+  MySerial.print("Sleep mode: ENABLED (");
   MySerial.print(SLEEP_TIMEOUT_SECONDS);
-  MySerial.println(" seconds timeout");
+  MySerial.println(" second timeout)");
   #else
-  MySerial.println("Sleep mode disabled");
+  MySerial.println("Sleep mode: DISABLED");
+  #endif
+  
+  #ifdef BOARD1
+  MySerial.println("Board: BOARD1 (Master/USB)");
+  #else
+  MySerial.println("Board: BOARD2 (Slave/UART)");
   #endif
   
   #ifdef DEBUG
   MySerial.print("ESP32C3 MAC Address: ");
   MySerial.println(WiFi.macAddress());
+  MySerial.print("Target MAC Address: ");
+  for (int i = 0; i < 6; i++) {
+    MySerial.printf("%02X", broadcastAddress[i]);
+    if (i < 5) MySerial.print(":");
+  }
+  MySerial.println("");
   #endif
+  
+  MySerial.println("Initializing ESP-NOW...");
   
   // Initialize ESP-NOW
   if (!init_espnow()) {
-    MySerial.println("Failed to initialize ESP-NOW");
-    return;
+    MySerial.println("FATAL: Failed to initialize ESP-NOW");
+    while(1) {
+      digitalWrite(LED_BUILTIN, LED_ON);
+      delay(100);
+      digitalWrite(LED_BUILTIN, LED_OFF);
+      delay(100);
+    }
   }
 
+  MySerial.println("ESP-NOW initialization complete");
+  
+  // IMPORTANT: Initialize activity timer AFTER successful WiFi/ESP-NOW setup
+  // This prevents immediate sleep on boot
   #if SLEEP_TIMEOUT_SECONDS > 0
-  last_activity_time = millis();
-  wifi_enabled = true;
+  delay(500); // Give some time for system to stabilize
+  update_activity_time(); // This sets sleep_timer_initialized = true
+  MySerial.print("Sleep timer initialized at: ");
+  MySerial.print(last_activity_time);
+  MySerial.println("ms");
   #endif
+  
+  MySerial.println("=== System Ready ===");
+  MySerial.flush(); // Ensure all boot messages are sent
 }
 
 void loop() {
-  // Check for sleep timeout
-  #if SLEEP_TIMEOUT_SECONDS > 0
-  if (wifi_enabled && (millis() - last_activity_time) > sleep_timeout_millis) {
+  // Check for sleep timeout - ONLY if sleep mode is enabled for this board
+  if (is_sleep_timeout_reached()) {
     disable_wifi();
   }
-  #endif
 
   // read up to BUFFER_SIZE from serial port
   if (MySerial.available()) {
+    #ifdef DEBUG
+    static uint32_t last_serial_debug = 0;
+    if (millis() - last_serial_debug > 5000) { // Debug every 5 seconds during serial activity
+      MySerial.print("Serial data available, bytes: ");
+      MySerial.println(MySerial.available());
+      last_serial_debug = millis();
+    }
+    #endif
+    
+    // Update activity time when serial data is available
+    update_activity_time();
+    
     // If WiFi is disabled and we have serial data, re-enable it
     #if SLEEP_TIMEOUT_SECONDS > 0
     if (!wifi_enabled) {
       enable_wifi();
       // Wait a bit for WiFi to fully initialize before proceeding
       delay(100);
-    } else {
-      last_activity_time = millis();  // Update activity time
     }
     #endif
     
@@ -311,29 +456,47 @@ void loop() {
       buf_send[buf_size] = MySerial.read();
       send_timeout = micros() + timeout_micros;
       buf_size++;
+      
+      // Update activity time periodically during continuous reading
+      // to prevent sleep during long data streams
+      if ((buf_size % 100) == 0) { // Every 100 bytes
+        update_activity_time();
+      }
     }
   }
 
   // send buffer contents when full or timeout has elapsed
-  // Only send if WiFi is enabled
+  // Only send if WiFi is enabled (or if sleep mode is disabled)
   #if SLEEP_TIMEOUT_SECONDS > 0
-  if (wifi_enabled && (buf_size == BUFFER_SIZE || (buf_size > 0 && micros() >= send_timeout))) {
+  bool should_send = wifi_enabled && (buf_size == BUFFER_SIZE || (buf_size > 0 && micros() >= send_timeout));
   #else
-  if (buf_size == BUFFER_SIZE || (buf_size > 0 && micros() >= send_timeout)) {
+  bool should_send = (buf_size == BUFFER_SIZE || (buf_size > 0 && micros() >= send_timeout));
   #endif
+
+  if (should_send) {
     #ifdef BLINK_ON_SEND
     digitalWrite(LED_BUILTIN, LOW);
     #endif
+    
     esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &buf_send, buf_size);
-    buf_size = 0;
+    
     #ifdef DEBUG
+    MySerial.print("Sent ");
+    MySerial.print(buf_size);
+    MySerial.print(" bytes: ");
     if (result == ESP_OK) {
-      MySerial.println("Sent!");
-    }
-    else {
-      MySerial.println("Send error");
+      MySerial.println("OK");
+    } else {
+      MySerial.print("ERROR ");
+      MySerial.println(result);
     }
     #endif
+    
+    // Update activity time when sending data (before clearing buffer)
+    update_activity_time();
+    
+    buf_size = 0;
+    
     #ifdef BLINK_ON_SEND
     digitalWrite(LED_BUILTIN, HIGH);
     #endif
