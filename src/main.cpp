@@ -43,7 +43,7 @@
 // Board configuration - manually uncomment #define BOARD1 or #define BOARD2 below
 // (or use build flags in platformio.ini: build_flags = -DBOARD1 or -DBOARD2)
 
-#define BOARD1 // BOARD1 or BOARD2
+#define BOARD2 // BOARD1 or BOARD2
 
 #ifdef BOARD1
 //#define RECVR_MAC {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}  // broadcast mode
@@ -64,7 +64,7 @@
 HardwareSerial MySerial(1);                             // Use UART1
 #define TX_PIN     5                                    // GPIO20 and GPIO21 are reserved for internal RF functions. External connections to them 
 #define RX_PIN     6                                    // can degrade Wi-Fi performance.
-#define MySerialSetup MySerial.begin(921600, SERIAL_8N1, RX_PIN, TX_PIN)
+#define MySerialSetup MySerial.begin(1000000, SERIAL_8N1, RX_PIN, TX_PIN)
 //#define BLINK_ON_SEND
 #define BLINK_ON_SEND_SUCCESS
 #define BLINK_ON_RECV_SUCCESS
@@ -72,7 +72,7 @@ HardwareSerial MySerial(1);                             // Use UART1
 #define SLEEP_TIMEOUT_SECONDS 0   // Sleep mode disabled for BOARD2 (slave)
 #endif
 
-#define WIFI_CHAN  14 // 12-13 only legal in US in lower power mode, do not use 14
+#define WIFI_CHAN  13 // 12-13 only legal in US in lower power mode, do not use 14
 
 #define BUFFER_SIZE 250 // max of 250 bytes
 //#define DEBUG // for additional serial messages (may interfere with other messages)
