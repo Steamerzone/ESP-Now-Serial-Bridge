@@ -31,7 +31,6 @@
  *   before compiling.
  *
  * -- Yuri - Sep 2021
- * -- Sleep fixes - Dec 2024
  *
  * Based this example - https://randomnerdtutorials.com/esp-now-two-way-communication-esp32/
  *
