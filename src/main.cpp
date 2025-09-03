@@ -49,7 +49,7 @@
 //#define RECVR_MAC {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}  // broadcast mode
 #define RECVR_MAC {0x64, 0xE8, 0x33, 0x88, 0x26, 0xF8}  // replace with BOARD2 mac address
 #define MySerial Serial
-#define MySerialSetup MySerial.begin(921600)            // Use USB serial
+#define MySerialSetup MySerial.begin(1000000)            // Use USB serial
 //#define BLINK_ON_SEND
 #define BLINK_ON_SEND_SUCCESS
 #define BLINK_ON_RECV_SUCCESS
@@ -76,7 +76,7 @@ HardwareSerial MySerial(1);                             // Use UART1
 
 #define BUFFER_SIZE 250 // max of 250 bytes
 //#define DEBUG // for additional serial messages (may interfere with other messages)
-#define BAUD_RATE 921600// for calulating timeout
+#define BAUD_RATE 1000000// for calulating timeout
 #define LED_BUILTIN 8
 #define LED_ON  LOW     // ESP32-C3 pin 8 LED is typically active-low
 #define LED_OFF HIGH    // ESP32-C3 pin 8 LED is typically active-low
