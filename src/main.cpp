@@ -43,7 +43,7 @@
 // Board configuration - manually uncomment #define BOARD1 or #define BOARD2 below
 // (or use build flags in platformio.ini: build_flags = -DBOARD1 or -DBOARD2)
 
-#define BOARD2 // BOARD1 or BOARD2
+#define BOARD1 // BOARD1 or BOARD2
 
 #ifdef BOARD1
 //#define RECVR_MAC {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}  // broadcast mode
@@ -72,7 +72,7 @@ HardwareSerial MySerial(1);                             // Use UART1
 #define SLEEP_TIMEOUT_SECONDS 0   // Sleep mode disabled for BOARD2 (slave)
 #endif
 
-#define WIFI_CHAN  13 // 12-13 only legal in US in lower power mode, do not use 14
+#define WIFI_CHAN  14 // 12-13 only legal in US in lower power mode, do not use 14
 
 #define BUFFER_SIZE 250 // max of 250 bytes
 //#define DEBUG // for additional serial messages (may interfere with other messages)
